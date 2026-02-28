@@ -886,48 +886,31 @@ async function sendSMS(phone, text) {
   return { ok: false, msg: 'Провайдер не выбран' };
 }
 
-function sendViaSmsRu(apiKey, phone, text) {
-  return new Promise((resolve) => {
-    const callbackName = 'smsru_cb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-    const timeout = setTimeout(() => {
-      delete window[callbackName];
-      resolve({ ok: false, msg: 'Таймаут — нет ответа от SMS.ru' });
-    }, 10000);
-
-    window[callbackName] = function(data) {
-      clearTimeout(timeout);
-      delete window[callbackName];
-      if (data && data.status === 'OK') {
-        const phones = Object.keys(data.sms || {});
-        if (phones.length > 0) {
-          const smsStatus = data.sms[phones[0]].status;
-          const smsStatusCode = data.sms[phones[0]].status_code;
-          if (smsStatus === 'OK') {
-            resolve({ ok: true, msg: 'OK' });
-          } else {
-            resolve({ ok: false, msg: `Код ошибки: ${smsStatusCode} — ${smsStatusText(smsStatusCode)}` });
-          }
-        } else {
-          resolve({ ok: false, msg: 'Нет данных в ответе' });
-        }
-      } else {
-        const code = data ? data.status_code : '?';
-        resolve({ ok: false, msg: `Ошибка API: ${code} — ${smsStatusText(code)}` });
+async function sendViaSmsRu(apiKey, phone, text) {
+  const from = document.getElementById('senderName').value.trim();
+  try {
+    const body = { api_id: apiKey, to: phone, msg: text };
+    if (from) body.from = from;
+    const response = await fetch('/api/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await response.json();
+    if (data.status === 'OK') {
+      const phones = Object.keys(data.sms || {});
+      if (phones.length > 0) {
+        const smsStatus = data.sms[phones[0]].status;
+        const smsStatusCode = data.sms[phones[0]].status_code;
+        if (smsStatus === 'OK') return { ok: true, msg: 'OK' };
+        return { ok: false, msg: 'Код: ' + smsStatusCode + ' — ' + smsStatusText(smsStatusCode) };
       }
-    };
-
-    const from = document.getElementById('senderName').value.trim();
-    const fromParam = from ? `&from=${encodeURIComponent(from)}` : '';
-    const script = document.createElement('script');
-    script.src = `https://sms.ru/sms/send?api_id=${encodeURIComponent(apiKey)}&to=${encodeURIComponent(phone)}&msg=${encodeURIComponent(text)}&json=1${fromParam}&callback=${callbackName}`;
-    script.onerror = () => {
-      clearTimeout(timeout);
-      delete window[callbackName];
-      resolve({ ok: false, msg: 'Нет ответа от сервера (CORS или сеть)' });
-    };
-    document.head.appendChild(script);
-    setTimeout(() => { try { document.head.removeChild(script); } catch(e){} }, 15000);
-  });
+    }
+    const code = data.status_code || '?';
+    return { ok: false, msg: 'Ошибка: ' + code + ' — ' + smsStatusText(code) };
+  } catch (err) {
+    return { ok: false, msg: 'Ошибка запроса: ' + err.message };
+  }
 }
 
 function smsStatusText(code) {
